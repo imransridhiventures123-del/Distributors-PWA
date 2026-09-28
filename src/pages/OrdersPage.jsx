@@ -31,6 +31,12 @@ const STATUS_STYLE = {
   rejected: "bg-red-50 text-red-600",
 };
 
+// NEW — Feature: admin-managed product catalog (Level 2). Other-product
+// quantities (anything besides Idly/Dosa) as " · 3 packet Paneer Pack".
+// Works for both request items and delivery-record items (same shape).
+const extrasText = (items) =>
+  (items || []).map((it) => ` · ${it.qty} ${it.unit || "kg"} ${it.productName || it.productKey}`).join("");
+
 const toISODate = (d) => d.toISOString().slice(0, 10);
 const isToday = (dateObj) => toISODate(dateObj) === toISODate(new Date());
 const isFuture = (dateObj) => toISODate(dateObj) > toISODate(new Date());
@@ -43,14 +49,17 @@ function OrderCard({ order, rates, onMarkComplete }) {
   const [skipReason, setSkipReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const amount = order.idlyKg * (rates.idly?.customerRatePerKg || 0) + order.dosaKg * (rates.dosa?.customerRatePerKg || 0);
+  const amount =
+    order.idlyKg * (rates.idly?.customerRatePerKg || 0) +
+    order.dosaKg * (rates.dosa?.customerRatePerKg || 0) +
+    (order.extraItems || []).reduce((s, it) => s + it.qty * (rates[it.productKey]?.customerRatePerKg || 0), 0);
 
   if (order.completed) {
     return (
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between opacity-80">
         <div>
           <p className="font-semibold text-gray-800 text-sm">{order.shopName}</p>
-          <p className="text-xs text-gray-400">{order.idlyKg}kg idly · {order.dosaKg}kg dosa</p>
+          <p className="text-xs text-gray-400">{order.idlyKg}kg idly · {order.dosaKg}kg dosa{extrasText(order.extraItems)}</p>
         </div>
         <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-green-600 text-xs font-semibold">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/></svg>
@@ -66,6 +75,7 @@ function OrderCard({ order, rates, onMarkComplete }) {
       await onMarkComplete({
         customerId: order.customerId, shopName: order.shopName,
         idlyKg: order.idlyKg, dosaKg: order.dosaKg,
+        extraItems: (order.extraItems || []).map((it) => ({ productKey: it.productKey, qty: it.qty })),
         status, paymentStatus,
         amountCharged: amount,
         amountPaid: paymentStatus === "partial" ? Number(amountPaid) || 0 : undefined,
@@ -80,6 +90,9 @@ function OrderCard({ order, rates, onMarkComplete }) {
         <p className="font-semibold text-gray-800 text-sm">{order.shopName}</p>
         <span className="text-xs text-gray-400">{order.idlyKg}kg idly · {order.dosaKg}kg dosa</span>
       </div>
+      {(order.extraItems || []).length > 0 && (
+        <p className="text-xs text-gray-500 mb-3">{extrasText(order.extraItems).replace(/^ · /, "")}</p>
+      )}
 
       <div className="flex gap-2 mb-2">
         <button onClick={() => setStatus("delivered")} className={`flex-1 py-2 rounded-xl text-xs font-medium ${status === "delivered" ? "bg-green-700 text-white" : "border border-gray-200 text-gray-500"}`}>Delivered</button>
@@ -150,7 +163,8 @@ export default function OrdersPage() {
   };
   useEffect(() => { loadDay(viewDate); }, [viewDate]);
 
-  const rates = { idly: products.find((p) => p.key === "idly"), dosa: products.find((p) => p.key === "dosa") };
+  // Every catalog product by key (rates.idly / rates.dosa still work exactly as before)
+  const rates = Object.fromEntries(products.map((p) => [p.key, p]));
 
   const shiftDate = (delta) => {
     const next = new Date(viewDate);
@@ -173,6 +187,7 @@ export default function OrdersPage() {
       key: c.customer || `${c.shopName}-${i}`,
       customerId: c.customer, shopName: c.shopName,
       idlyKg: c.idlyKg, dosaKg: c.dosaKg,
+      extraItems: c.extraItems || [],
       completed: !!done, status: done?.status,
     };
   });
@@ -229,7 +244,7 @@ export default function OrdersPage() {
                 <div key={d._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
                   <div>
                     <p className="font-medium text-gray-800 text-sm">{d.shopName || d.customer?.shopName}</p>
-                    <p className="text-xs text-gray-400">{d.idlyKg}kg idly · {d.dosaKg}kg dosa</p>
+                    <p className="text-xs text-gray-400">{d.idlyKg}kg idly · {d.dosaKg}kg dosa{extrasText(d.extraItems)}</p>
                   </div>
                   <span className={`text-xs font-medium ${d.status === "skipped" ? "text-gray-400" : "text-green-600"}`}>
                     {d.status === "skipped" ? "Skipped" : "✓ Completed"}
@@ -261,7 +276,7 @@ export default function OrdersPage() {
               <div className="text-center py-6">
                 <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">⏳</div>
                 <p className="font-semibold text-gray-800">Waiting for admin approval</p>
-                <p className="text-sm text-gray-400 mt-1">Requested: {request.requestedIdlyKg}kg idly / {request.requestedDosaKg}kg dosa</p>
+                <p className="text-sm text-gray-400 mt-1">Requested: {request.requestedIdlyKg}kg idly / {request.requestedDosaKg}kg dosa{extrasText(request.requestedExtraItems)}</p>
                 {request.requestedDeliveryDate && (
                   <p className="text-xs text-gray-400 mt-1">
                     Wanted by: {new Date(request.requestedDeliveryDate).toLocaleDateString("en-IN")}{request.requestedDeliveryTime && ` at ${request.requestedDeliveryTime}`}
@@ -273,7 +288,7 @@ export default function OrdersPage() {
             {hasApprovedRequestToday && (
               <>
                 <div className="bg-green-50 border border-green-100 rounded-xl px-4 py-3 mb-4 text-sm text-green-700">
-                  Approved: {request.approvedIdlyKg}kg idly / {request.approvedDosaKg}kg dosa
+                  Approved: {request.approvedIdlyKg}kg idly / {request.approvedDosaKg}kg dosa{extrasText(request.approvedExtraItems)}
                   {request.deliveryTime && <> · Delivery time: <b>{request.deliveryTime}</b></>}
                 </div>
                 <p className="font-bold text-gray-800 mb-3 px-1">Today's Orders</p>

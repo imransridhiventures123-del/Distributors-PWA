@@ -62,7 +62,13 @@ function CarryOverModal({ totals, stock, onSendReduced, onSendFull, onClose }) {
   );
 }
 
-const PRODUCT_LABEL = { idly: "Idly Batter", dosa: "Dosa Batter" };
+// UPDATED — Feature: admin-managed product catalog (Level 2). Names and
+// units now come from the live catalog (GET /api/products) instead of a
+// fixed Idly/Dosa label map, so any product the admin adds shows up here
+// correctly, and — the important part — is actually SENT with the order
+// (before, only Idly/Dosa were picked out of the cart and everything else
+// was silently dropped).
+const CORE_KEYS = ["idly", "dosa"];
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -100,14 +106,30 @@ export default function CheckoutPage() {
     { idly: 0, dosa: 0 }
   );
 
+  const nameOf = (key) => rates[key]?.name || key;
+  const unitOf = (key) => rates[key]?.unit || "kg";
+
+  // Quantities of every product other than Idly/Dosa, across all customers
+  const extraTotals = {};
+  entries.forEach(([, c]) => {
+    Object.entries(c.items).forEach(([key, qty]) => {
+      if (!CORE_KEYS.includes(key)) extraTotals[key] = (extraTotals[key] || 0) + qty;
+    });
+  });
+
   const grandTotal = entries.reduce((sum, [, c]) => {
     return sum + Object.entries(c.items).reduce((s, [key, qty]) => s + qty * (rates[key]?.customerRatePerKg || 0), 0);
   }, 0);
 
+  // Idly/Dosa keep their own fields exactly as before; every other product
+  // in the cart goes in extraItems.
   const buildOrders = () =>
     entries.map(([customerId, c]) => ({
       customerId, shopName: c.shopName,
       idlyKg: c.items.idly || 0, dosaKg: c.items.dosa || 0,
+      extraItems: Object.entries(c.items)
+        .filter(([key]) => !CORE_KEYS.includes(key))
+        .map(([key, qty]) => ({ productKey: key, productName: nameOf(key), unit: unitOf(key), qty })),
     }));
 
   const doSubmit = async (options) => {
@@ -184,7 +206,7 @@ export default function CheckoutPage() {
                   <div className="space-y-1">
                     {Object.entries(c.items).map(([key, qty]) => (
                       <div key={key} className="flex justify-between text-xs text-gray-500">
-                        <span>{PRODUCT_LABEL[key] || key} · {qty}kg</span>
+                        <span>{nameOf(key)} · {qty} {unitOf(key)}</span>
                         <span>₹{qty * (rates[key]?.customerRatePerKg || 0)}</span>
                       </div>
                     ))}
@@ -195,8 +217,13 @@ export default function CheckoutPage() {
 
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
               <div className="flex justify-between text-sm text-gray-600 mb-1">
-                <span>Total kg</span><span>{totals.idly}kg idly / {totals.dosa}kg dosa</span>
+                <span>Total</span><span>{totals.idly}kg idly / {totals.dosa}kg dosa</span>
               </div>
+              {Object.entries(extraTotals).map(([key, qty]) => (
+                <div key={key} className="flex justify-between text-sm text-gray-600 mb-1">
+                  <span>{nameOf(key)}</span><span>{qty} {unitOf(key)}</span>
+                </div>
+              ))}
               <div className="flex justify-between text-base font-bold text-gray-800 pt-2 border-t border-gray-100">
                 <span>Estimated Total</span><span>₹{grandTotal}</span>
               </div>

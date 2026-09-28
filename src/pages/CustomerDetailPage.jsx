@@ -78,6 +78,10 @@ export default function CustomerDetailPage() {
 
   const totalKg = Object.values(quantities).reduce((s, v) => s + v, 0);
   const totalPrice = products.reduce((s, p) => s + (quantities[p.key] || 0) * p.customerRatePerKg, 0);
+  // Products can now be sold by kg, packet, litre... so only call the
+  // total "kg" when every selected product really is sold by the kg.
+  const selectedProducts = products.filter((p) => (quantities[p.key] || 0) > 0);
+  const totalUnitLabel = selectedProducts.every((p) => (p.unit || "kg") === "kg") ? "kg" : "items";
 
   const handleAddToCart = () => {
     if (!customer || totalKg <= 0) return;
@@ -184,7 +188,8 @@ export default function CustomerDetailPage() {
                 />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-800 text-sm">{p.name}</p>
-                  <p className="text-xs text-gray-400 mb-1">₹{p.customerRatePerKg}/kg</p>
+                  {p.description && <p className="text-[11px] text-gray-400 leading-snug line-clamp-2">{p.description}</p>}
+                  <p className="text-xs text-gray-400 mb-1">₹{p.customerRatePerKg}/{p.unit || "kg"}</p>
                   <p className="text-[11px] text-green-600 mb-1.5">● In Stock</p>
                   <div className="flex items-center gap-2">
                     <button onClick={() => bump(p.key, -1)} className="w-7 h-7 rounded-full border border-green-700 text-green-700 flex items-center justify-center text-sm font-bold">−</button>
@@ -213,7 +218,10 @@ export default function CustomerDetailPage() {
               todayOrders.map((o) => (
                 <div key={o._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-gray-800">{o.idlyKg}kg idly · {o.dosaKg}kg dosa</p>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {o.idlyKg}kg idly · {o.dosaKg}kg dosa
+                      {(o.extraItems || []).map((it) => ` · ${it.qty} ${it.unit || "kg"} ${it.productName || it.productKey}`).join("")}
+                    </p>
                     <p className="text-xs text-gray-400 mt-0.5">{new Date(o.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
                   </div>
                   <div className="text-right">
@@ -240,7 +248,7 @@ export default function CustomerDetailPage() {
             disabled={totalKg <= 0}
             className={`w-full py-3.5 rounded-2xl text-white text-[14.5px] font-semibold disabled:opacity-40 ${added ? "bg-green-600" : "bg-green-700"}`}
           >
-            {added ? "Added to Cart ✓" : `Add to Cart (${totalKg} kg) · ${money(totalPrice)}`}
+            {added ? "Added to Cart ✓" : `Add to Cart (${totalKg} ${totalUnitLabel}) · ${money(totalPrice)}`}
           </button>
         </div>
       )}
