@@ -15,6 +15,7 @@ import OrdersPage from "./pages/OrdersPage";
 import LedgerPage from "./pages/LedgerPage";
 import ProfilePage from "./pages/ProfilePage";
 import CheckoutPage from "./pages/CheckoutPage";
+import CustomerDetailPage from "./pages/CustomerDetailPage";
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
 
             <Route path="/" element={<PrivateRoute><HomePage /></PrivateRoute>} />
             <Route path="/customers" element={<PrivateRoute><CustomersPage /></PrivateRoute>} />
+            <Route path="/customers/:id" element={<PrivateRoute><CustomerDetailPage /></PrivateRoute>} />
             <Route path="/orders" element={<PrivateRoute><OrdersPage /></PrivateRoute>} />
             <Route path="/ledger" element={<PrivateRoute><LedgerPage /></PrivateRoute>} />
             <Route path="/profile" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />

@@ -1,27 +1,78 @@
 // FILE: src/pages/CustomersPage.jsx
-// UPDATED — Feature: e-commerce-style Request Batter flow. Replaces the
-// old step-wizard entirely, per your instruction. Now works exactly
-// like a shopping site:
-//   1. Tap a customer row → it expands to show PRODUCT CARDS (image,
-//      rate/kg, a +/- stepper AND a manual quantity box for fast bulk
-//      entry) for every active product from GET /api/products.
-//   2. "Add to Cart" on a product stores { customer, product, qty } in
-//      the shared cart (CartContext) — a small badge on that customer's
-//      row shows how many items are in their cart so far.
-//   3. Repeat for as many customers as needed — collapse one, expand
-//      another, add more.
-//   4. A floating Cart button (bottom-right, only appears once the cart
-//      has something in it) takes you to the new Checkout page.
-// Call/WhatsApp buttons and "+ Add Customer" are unchanged from before.
+// UPDATED — Feature: dedicated Customer Detail page. Tapping a customer
+// card no longer expands inline product cards underneath it — it now
+// navigates to /customers/:id (see the new CustomerDetailPage.jsx),
+// which shows the customer's info, stats, Products tab (with the same
+// Add to Cart feature, just moved there) and an Order History tab, per
+// your reference image. Search, segment tabs (All/Regular/Premium/New),
+// call/WhatsApp buttons, and "+ Add Customer" are all unchanged — same
+// getMyCustomers() / createMyCustomer() calls as before, no API change.
+//
+// Same honesty note as before on the segment tabs: your Customer records
+// only carry a real "regular / irregular" tag from the backend — there's
+// no "Premium" or "New" field. These two are derived from fields you
+// already have (adjust the thresholds below, or ask for a real backend
+// segment field later):
+//   - "New"     → customer added within the last 7 days (createdAt)
+//   - "Premium" → customer's totalKg so far is 40kg or more
+//   - "Regular" → everyone else
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNav from "../components/BottomNav";
-import { getMyCustomers, createMyCustomer, getProducts } from "../api/distributorApi";
+import { getMyCustomers, createMyCustomer } from "../api/distributorApi";
 import { useDistributorAuth } from "../context/DistributorAuthContext";
 import { useCart } from "../context/CartContext";
 
+const PREMIUM_KG_THRESHOLD = 40;
+const NEW_DAYS_THRESHOLD = 7;
+
+function classify(customer) {
+  const daysSinceAdded = (Date.now() - new Date(customer.createdAt).getTime()) / 86400000;
+  if (daysSinceAdded <= NEW_DAYS_THRESHOLD) return "New";
+  if ((customer.totalKg || 0) >= PREMIUM_KG_THRESHOLD) return "Premium";
+  return "Regular";
+}
+
+const BADGE_STYLE = {
+  Regular: "text-green-600",
+  Premium: "text-amber-600",
+  New: "text-blue-600",
+};
+
+const TABS = ["All", "Regular", "Premium", "New"];
+
+// UPDATED — Add Customer redesigned to match your reference image
+// exactly: full-screen green-header layout, "Customer Name"/"Phone
+// Number"/"Address" labeled fields, and a "Customer Type" segmented
+// picker (Regular/Premium/New). Still implemented as an overlay inside
+// this same file (no new route/page), per your instruction to touch
+// only this file.
+//
+// PLUS the extra field you asked for: "Business Type" (Home /
+// Supermarket / Hotel), added right below Customer Type.
+//
+// Two honesty notes on the two segmented pickers:
+//  1. "Customer Type" (Regular/Premium/New) here is a MANUAL choice at
+//     creation time. Everywhere else in the app (the customer list's
+//     badges, the detail page), that same label is auto-calculated from
+//     order history (days since added / total kg) — see the classify()
+//     function above. The two are not connected: whatever you pick here
+//     is sent to the backend, but the rest of the app will keep showing
+//     its own calculated badge until the Customer model has a real
+//     field for a manually-set type and every other page is updated to
+//     read it instead of calculating it.
+//  2. "Business Type" (Home/Supermarket/Hotel) is a brand-new field with
+//     no existing column on the Customer model. It's captured here and
+//     sent to createMyCustomer() so it's ready the moment the backend
+//     adds support for it, but until then the backend will most likely
+//     just ignore/drop it silently — nothing will break, it just won't
+//     be saved yet. Let me know if you'd like the backend Customer
+//     model + admin screens updated to actually store and show it.
 function AddCustomerModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ shopName: "", ownerName: "", phone: "", address: "" });
+  const [form, setForm] = useState({
+    shopName: "", phone: "", address: "",
+    customerType: "Regular", businessType: "Home",
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,7 +80,7 @@ function AddCustomerModal({ onClose, onCreated }) {
 
   const submit = async () => {
     setError("");
-    if (!form.shopName || !form.phone) { setError("Shop name and phone are required."); return; }
+    if (!form.shopName || !form.phone) { setError("Customer name and phone are required."); return; }
     setSaving(true);
     try {
       const data = await createMyCustomer(form);
@@ -40,73 +91,95 @@ function AddCustomerModal({ onClose, onCreated }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center">
-      <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md p-5">
-        <p className="font-bold text-gray-800 mb-4">Add New Customer</p>
-        {error && <div className="bg-red-50 text-red-600 text-xs px-3 py-2 rounded-xl mb-3">{error}</div>}
-        <div className="space-y-3 mb-4">
-          <input placeholder="Shop name *" value={form.shopName} onChange={(e) => set("shopName", e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
-          <input placeholder="Owner name" value={form.ownerName} onChange={(e) => set("ownerName", e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
-          <input placeholder="Phone number *" value={form.phone} onChange={(e) => set("phone", e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
-          <input placeholder="Address" value={form.address} onChange={(e) => set("address", e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium">Cancel</button>
-          <button onClick={submit} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-green-700 text-white text-sm font-medium disabled:opacity-60">
-            {saving ? "Adding…" : "Add Customer"}
-          </button>
-        </div>
+    <div className="fixed inset-0 bg-gray-50 z-50 flex flex-col max-w-md mx-auto">
+      <div className="bg-gradient-to-b from-green-800 to-green-700 px-4 pt-6 pb-4 flex items-center gap-3 flex-shrink-0">
+        <button onClick={onClose} className="text-white">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <span className="text-white text-lg font-semibold">Add New Customer</span>
       </div>
-    </div>
-  );
-}
 
-/* ══════════════════ Product card (image + rate + qty + Add to Cart) ══════════════════ */
-function ProductCard({ product, customerId, shopName }) {
-  const { addItem, qtyFor } = useCart();
-  const existingQty = qtyFor(customerId, product.key);
-  const [qty, setQty] = useState(existingQty || 0);
-  const [added, setAdded] = useState(false);
+      <div className="flex-1 overflow-y-auto px-4 pt-5 pb-28">
+        {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2.5 rounded-xl mb-4">{error}</div>}
 
-  const bump = (delta) => setQty((q) => Math.max(0, q + delta));
-
-  const handleAdd = () => {
-    if (qty <= 0) return;
-    addItem(customerId, shopName, product.key, qty);
-    setAdded(true);
-    setTimeout(() => setAdded(false), 1200);
-  };
-
-  return (
-    <div className="bg-gray-50 rounded-2xl p-3 flex items-center gap-3">
-      <img
-        src={product.imageUrl || `/assets/products/${product.key}.jpg`}
-        alt={product.name}
-        className="w-16 h-16 rounded-xl object-cover bg-gray-200 flex-shrink-0"
-      />
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-gray-800 text-sm">{product.name}</p>
-        <p className="text-xs text-gray-400 mb-2">₹{product.customerRatePerKg}/kg</p>
-
-        <div className="flex items-center gap-2">
-          <button onClick={() => bump(-1)} className="w-7 h-7 rounded-full border border-green-700 text-green-700 flex items-center justify-center text-sm font-bold">−</button>
+        <div className="mb-4">
+          <label className="text-[13px] font-medium text-gray-700 mb-1.5 block">
+            Customer Name <span className="text-red-500">*</span>
+          </label>
           <input
-            type="number" min="0"
-            value={qty}
-            onChange={(e) => setQty(Math.max(0, Number(e.target.value) || 0))}
-            className="w-14 text-center px-1 py-1 rounded-lg border border-gray-200 text-sm"
+            value={form.shopName} onChange={(e) => set("shopName", e.target.value)}
+            placeholder="Enter customer name"
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-600"
           />
-          <span className="text-xs text-gray-400">kg</span>
-          <button onClick={() => bump(1)} className="w-7 h-7 rounded-full bg-green-700 text-white flex items-center justify-center text-sm font-bold">+</button>
+        </div>
+
+        <div className="mb-4">
+          <label className="text-[13px] font-medium text-gray-700 mb-1.5 block">
+            Phone Number <span className="text-red-500">*</span>
+          </label>
+          <input
+            value={form.phone} onChange={(e) => set("phone", e.target.value)}
+            placeholder="Enter phone number"
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-600"
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="text-[13px] font-medium text-gray-700 mb-1.5 block">Address</label>
+          <textarea
+            value={form.address} onChange={(e) => set("address", e.target.value)}
+            placeholder="Enter address"
+            rows={3}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-600 resize-none"
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="text-[13px] font-medium text-gray-700 mb-2 block">Customer Type</label>
+          <div className="flex gap-2">
+            {["Regular", "Premium", "New"].map((t) => (
+              <button
+                key={t} type="button"
+                onClick={() => set("customerType", t)}
+                className={`flex-1 py-2.5 rounded-xl text-[13px] font-semibold ${
+                  form.customerType === t ? "bg-green-700 text-white" : "bg-white border border-gray-200 text-gray-500"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* NEW — extra field you asked for */}
+        <div className="mb-4">
+          <label className="text-[13px] font-medium text-gray-700 mb-2 block">Business Type</label>
+          <div className="flex gap-2">
+            {["Home", "Supermarket", "Hotel"].map((t) => (
+              <button
+                key={t} type="button"
+                onClick={() => set("businessType", t)}
+                className={`flex-1 py-2.5 rounded-xl text-[13px] font-semibold ${
+                  form.businessType === t ? "bg-green-700 text-white" : "bg-white border border-gray-200 text-gray-500"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-      <button
-        onClick={handleAdd}
-        disabled={qty <= 0}
-        className={`px-3 py-2 rounded-xl text-xs font-semibold flex-shrink-0 disabled:opacity-40 ${added ? "bg-green-600 text-white" : "bg-blue-600 text-white"}`}
-      >
-        {added ? "Added ✓" : "Add to Cart"}
-      </button>
+
+      <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-100 p-4">
+        <button
+          onClick={submit} disabled={saving}
+          className="w-full py-3.5 rounded-2xl bg-green-700 text-white text-[14.5px] font-semibold disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save Customer"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -114,23 +187,30 @@ function ProductCard({ product, customerId, shopName }) {
 export default function CustomersPage() {
   const { distributor } = useDistributorAuth();
   const navigate = useNavigate();
-  const { cart, removeCustomer, totalItems } = useCart();
+  const { cart, totalItems } = useCart();
   const [customers, setCustomers] = useState([]);
-  const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState("All");
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [expandedId, setExpandedId] = useState(null);
 
   const load = () => {
     setLoading(true);
-    Promise.all([getMyCustomers(), getProducts()])
-      .then(([c, p]) => { setCustomers(c.customers || []); setProducts((p.products || []).filter((x) => x.isActive !== false)); })
-      .finally(() => setLoading(false));
+    getMyCustomers().then((c) => setCustomers(c.customers || [])).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
 
-  const filtered = customers.filter((c) => (c.shopName + c.phone).toLowerCase().includes(search.toLowerCase()));
+  const withTag = customers.map((c) => ({ ...c, segment: classify(c) }));
+  const counts = {
+    All: withTag.length,
+    Regular: withTag.filter((c) => c.segment === "Regular").length,
+    Premium: withTag.filter((c) => c.segment === "Premium").length,
+    New: withTag.filter((c) => c.segment === "New").length,
+  };
+
+  const filtered = withTag
+    .filter((c) => tab === "All" || c.segment === tab)
+    .filter((c) => (c.shopName + c.phone).toLowerCase().includes(search.toLowerCase()));
 
   const whatsappLink = (customer) => {
     const phone = (customer.phone || "").replace(/\D/g, "");
@@ -142,99 +222,112 @@ export default function CustomersPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28 max-w-md mx-auto">
-      <div className="bg-gradient-to-b from-green-800 to-green-700 px-4 pt-6 pb-9 rounded-b-3xl">
-        <div className="flex items-center justify-between">
-          <span className="text-white text-lg font-semibold">My Customers</span>
-          <button onClick={() => setShowAdd(true)} className="text-white">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        </div>
+      {/* ── Green header ── */}
+      <div className="bg-gradient-to-b from-green-800 to-green-700 px-4 pt-6 pb-5 flex items-center justify-between">
+        <button onClick={() => navigate(-1)} className="text-white">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <span className="text-white text-lg font-semibold">My Customers</span>
+        <button onClick={() => setShowAdd(true)} className="text-white">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
       </div>
 
-      <div className="-mt-5 px-4">
+      <div className="px-4 pt-4">
+        {/* ── Search + filter ── */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex items-center gap-2 px-4 py-3 mb-4">
           <svg className="w-[18px] h-[18px] text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
           </svg>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customer name, phone..." className="flex-1 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none" />
+          <input
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search customers by name or phone..."
+            className="flex-1 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none"
+          />
+          <svg className="w-[18px] h-[18px] text-green-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+          </svg>
+        </div>
+
+        {/* ── Segment tabs ── */}
+        <div className="flex items-center gap-2 mb-4 overflow-x-auto">
+          {TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 rounded-full text-[13px] font-medium whitespace-nowrap ${
+                tab === t ? "bg-green-800 text-white" : "bg-white border border-gray-200 text-gray-500"
+              }`}
+            >
+              {t} ({counts[t]})
+            </button>
+          ))}
         </div>
 
         {loading && <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>}
         {!loading && filtered.length === 0 && (
           <div className="text-center py-10">
-            <p className="text-gray-400 text-sm mb-3">No customers assigned to you yet.</p>
-            <button onClick={() => setShowAdd(true)} className="px-4 py-2 rounded-xl bg-green-700 text-white text-sm font-medium">+ Add your first customer</button>
+            <p className="text-gray-400 text-sm mb-3">No customers match this filter.</p>
+            <button onClick={() => setShowAdd(true)} className="px-4 py-2 rounded-xl bg-green-700 text-white text-sm font-medium">+ Add a customer</button>
           </div>
         )}
 
-        <div className="space-y-2">
+        {/* ── Customer cards — tap navigates to the detail page ── */}
+        <div className="space-y-2.5">
           {filtered.map((c) => {
-            const isOpen = expandedId === c._id;
             const cartCount = cartCountFor(c._id);
             return (
-              <div key={c._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div
-                  className="flex items-center gap-3 px-4 py-3.5 cursor-pointer"
-                  onClick={() => setExpandedId(isOpen ? null : c._id)}
-                >
+              <div
+                key={c._id}
+                onClick={() => navigate(`/customers/${c._id}`)}
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden px-4 py-3.5 cursor-pointer"
+              >
+                <div className="flex items-start gap-3">
                   <div className="w-11 h-11 rounded-xl bg-green-50 text-green-700 flex items-center justify-center flex-shrink-0">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" />
                     </svg>
                   </div>
+
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-[14px] truncate">{c.shopName}</p>
-                    <p className="text-[12px] text-gray-400">{c.phone}</p>
-                    <p className="text-[12px] text-gray-500 mt-0.5">Total: {c.totalKg || 0}kg · {c.totalOrders || 0} orders</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {cartCount > 0 && (
-                      <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-600 text-[11px] font-semibold flex items-center gap-1">
-                        🛒 {cartCount}
-                      </span>
-                    )}
-                    <a href={`tel:${c.phone}`} className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-gray-600">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                      </svg>
-                    </a>
-                    <a href={whatsappLink(c)} target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M20.52 3.48A11.87 11.87 0 0012.02 0C5.4 0 .06 5.34.06 11.96c0 2.1.56 4.15 1.62 5.96L0 24l6.24-1.64a11.9 11.9 0 005.78 1.48h.01c6.62 0 11.96-5.34 11.96-11.96 0-3.2-1.24-6.2-3.47-8.4zM12.03 21.4a9.4 9.4 0 01-4.8-1.31l-.34-.2-3.58.94.96-3.5-.22-.36a9.44 9.44 0 01-1.45-5.01c0-5.22 4.25-9.47 9.48-9.47a9.4 9.4 0 016.7 2.78 9.4 9.4 0 012.77 6.7c0 5.23-4.25 9.43-9.52 9.43zm5.18-7.08c-.28-.14-1.67-.82-1.93-.92-.26-.1-.45-.14-.64.14-.19.28-.74.92-.9 1.11-.17.19-.33.21-.61.07-.28-.14-1.18-.43-2.24-1.38-.83-.74-1.39-1.65-1.55-1.93-.16-.28-.02-.43.12-.57.13-.13.28-.33.42-.5.14-.17.19-.28.28-.47.1-.19.05-.35-.02-.5-.07-.14-.64-1.54-.88-2.11-.23-.55-.47-.48-.64-.49h-.55c-.19 0-.5.07-.76.35-.26.28-1 .98-1 2.38 0 1.4 1.02 2.76 1.16 2.95.14.19 2 3.05 4.85 4.28.68.29 1.21.47 1.62.6.68.22 1.3.19 1.79.11.55-.08 1.67-.68 1.9-1.34.24-.66.24-1.22.17-1.34-.07-.12-.26-.19-.54-.33z" />
-                      </svg>
-                    </a>
-                    <svg className={`w-4 h-4 text-gray-300 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-gray-800 text-[14px] truncate">{c.shopName}</p>
+                      <span className={`text-[12px] font-semibold flex-shrink-0 ${BADGE_STYLE[c.segment]}`}>{c.segment}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <p className="text-[12.5px] text-gray-400 truncate">{c.phone}</p>
+                      <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {cartCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold">🛒{cartCount}</span>
+                        )}
+                        <a href={`tel:${c.phone}`} className="w-8 h-8 rounded-full border border-green-600 text-green-600 flex items-center justify-center">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                          </svg>
+                        </a>
+                        <a href={whatsappLink(c)} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white">
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M20.52 3.48A11.87 11.87 0 0012.02 0C5.4 0 .06 5.34.06 11.96c0 2.1.56 4.15 1.62 5.96L0 24l6.24-1.64a11.9 11.9 0 005.78 1.48h.01c6.62 0 11.96-5.34 11.96-11.96 0-3.2-1.24-6.2-3.47-8.4zM12.03 21.4a9.4 9.4 0 01-4.8-1.31l-.34-.2-3.58.94.96-3.5-.22-.36a9.44 9.44 0 01-1.45-5.01c0-5.22 4.25-9.47 9.48-9.47a9.4 9.4 0 016.7 2.78 9.4 9.4 0 012.77 6.7c0 5.23-4.25 9.43-9.52 9.43zm5.18-7.08c-.28-.14-1.67-.82-1.93-.92-.26-.1-.45-.14-.64.14-.19.28-.74.92-.9 1.11-.17.19-.33.21-.61.07-.28-.14-1.18-.43-2.24-1.38-.83-.74-1.39-1.65-1.55-1.93-.16-.28-.02-.43.12-.57.13-.13.28-.33.42-.5.14-.17.19-.28.28-.47.1-.19.05-.35-.02-.5-.07-.14-.64-1.54-.88-2.11-.23-.55-.47-.48-.64-.49h-.55c-.19 0-.5.07-.76.35-.26.28-1 .98-1 2.38 0 1.4 1.02 2.76 1.16 2.95.14.19 2 3.05 4.85 4.28.68.29 1.21.47 1.62.6.68.22 1.3.19 1.79.11.55-.08 1.67-.68 1.9-1.34.24-.66.24-1.22.17-1.34-.07-.12-.26-.19-.54-.33z" />
+                          </svg>
+                        </a>
+                      </div>
+                    </div>
+
+                    <p className="text-[12px] text-gray-400 mt-1">{c.totalOrders || 0} orders · {c.totalKg || 0} kg</p>
                   </div>
                 </div>
-
-                {/* ══ Expanded: product cards for this customer ══ */}
-                {isOpen && (
-                  <div className="px-4 pb-4 pt-1 border-t border-gray-50 space-y-3">
-                    <p className="text-xs font-semibold text-gray-500">Products for {c.shopName}</p>
-                    {products.map((p) => (
-                      <ProductCard key={p.key} product={p} customerId={c._id} shopName={c.shopName} />
-                    ))}
-                    {cartCount > 0 && (
-                      <button
-                        onClick={() => removeCustomer(c._id)}
-                        className="w-full text-center text-xs text-red-500 font-medium pt-1"
-                      >
-                        Clear {c.shopName}'s cart items
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* Floating cart button */}
+      {/* Floating cart button (unchanged feature) */}
       {totalItems > 0 && (
         <button
           onClick={() => navigate("/checkout")}
