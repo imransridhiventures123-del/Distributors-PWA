@@ -19,7 +19,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNav from "../components/BottomNav";
-import { getMyCustomers, createMyCustomer } from "../api/distributorApi";
+import {
+  getMyCustomers, createMyCustomer, getProducts, getMyDeliveries,
+  createManualOrder, cancelManualOrder, updateMyCustomerPricing,
+} from "../api/distributorApi";
 import { useDistributorAuth } from "../context/DistributorAuthContext";
 import { useCart } from "../context/CartContext";
 
@@ -184,6 +187,140 @@ function AddCustomerModal({ onClose, onCreated }) {
   );
 }
 
+/* ══════════════════ One-click "Today's Order" form ══════════════════ */
+// Tap "＋ Today's Order" on a customer: enter how many kg are needed today
+// and the amount is worked out automatically from THIS customer's price.
+// The price boxes are editable — if you change one it is saved as this
+// customer's price (so the Ledger is right from the very first order).
+// Confirming creates a PENDING order that shows up as a card on the
+// Orders tab, where it is closed with Mark Complete.
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+function QuickOrderModal({ customer, products, pending, onClose, onSaved, onCancelled }) {
+  const effective = (p) => {
+    const o = (customer.customPricing || []).find((it) => it.productKey === p.key);
+    return o ? o.customerRatePerKg : p.customerRatePerKg;
+  };
+  const initialQty = (p) => {
+    if (!pending) return 0;
+    if (p.key === "idly") return pending.idlyKg || 0;
+    if (p.key === "dosa") return pending.dosaKg || 0;
+    return (pending.extraItems || []).find((it) => it.productKey === p.key)?.qty || 0;
+  };
+
+  const [qty, setQty] = useState(() => Object.fromEntries(products.map((p) => [p.key, initialQty(p)])));
+  const [price, setPrice] = useState(() => Object.fromEntries(products.map((p) => [p.key, String(effective(p))])));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const lineAmount = (p) => round2((qty[p.key] || 0) * (Number(price[p.key]) || 0));
+  const total = round2(products.reduce((s, p) => s + lineAmount(p), 0));
+  const bump = (key, d) => setQty((q) => ({ ...q, [key]: Math.max(0, round2((q[key] || 0) + d)) }));
+
+  const submit = async () => {
+    setError("");
+    const chosen = products.filter((p) => (qty[p.key] || 0) > 0);
+    if (!chosen.length) { setError("Enter the kg for at least one product."); return; }
+    for (const p of chosen) {
+      const v = Number(price[p.key]);
+      if (price[p.key] === "" || !Number.isFinite(v) || v < 0) { setError(`Enter a valid price for ${p.name}.`); return; }
+    }
+    setSaving(true);
+    try {
+      let updatedCustomer = null;
+      const changed = chosen.filter((p) => Number(price[p.key]) !== effective(p));
+      if (changed.length) {
+        const map = Object.fromEntries((customer.customPricing || []).map((it) => [it.productKey, it.customerRatePerKg]));
+        changed.forEach((p) => { map[p.key] = Number(price[p.key]); });
+        const res = await updateMyCustomerPricing(
+          customer._id,
+          Object.entries(map).map(([productKey, customerRatePerKg]) => ({ productKey, customerRatePerKg }))
+        );
+        updatedCustomer = res.customer;
+      }
+      const data = await createManualOrder({
+        customerId: customer._id,
+        idlyKg: qty.idly || 0,
+        dosaKg: qty.dosa || 0,
+        extraItems: chosen.filter((p) => !["idly", "dosa"].includes(p.key)).map((p) => ({ productKey: p.key, qty: qty[p.key] })),
+      });
+      onSaved(data.record, updatedCustomer);
+    } catch (err) {
+      setError(err.response?.data?.message || "Couldn't save the order. Please try again.");
+    } finally { setSaving(false); }
+  };
+
+  const cancelOrder = async () => {
+    if (!window.confirm("Cancel today's order for this customer?")) return;
+    setSaving(true);
+    try { await cancelManualOrder(pending._id); onCancelled(); }
+    catch (err) { setError(err.response?.data?.message || "Couldn't cancel the order."); setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center">
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md max-h-[92vh] overflow-y-auto p-5">
+        <p className="font-bold text-gray-800">{pending ? "Edit Today's Order" : "Today's Order"}</p>
+        <p className="text-xs text-gray-400 mb-4">{customer.shopName} · how much do they need today?</p>
+        {error && <div className="bg-red-50 text-red-600 text-xs px-3 py-2 rounded-xl mb-3">{error}</div>}
+
+        <div className="space-y-3 mb-4">
+          {products.map((p) => (
+            <div key={p.key} className="bg-gray-50 rounded-2xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-800">{p.name}</span>
+                <span className="text-sm font-semibold text-gray-700">₹{lineAmount(p)}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <button type="button" aria-label={`decrease ${p.name}`} onClick={() => bump(p.key, -1)} className="w-7 h-7 rounded-full border border-green-700 text-green-700 text-sm font-bold">−</button>
+                  <input
+                    type="number" min="0" step="0.5" aria-label={`${p.name} quantity`}
+                    value={qty[p.key] || 0}
+                    onChange={(e) => setQty((q) => ({ ...q, [p.key]: Math.max(0, Number(e.target.value) || 0) }))}
+                    className="w-14 text-center px-1 py-1 rounded-lg border border-gray-200 text-sm"
+                  />
+                  <button type="button" aria-label={`increase ${p.name}`} onClick={() => bump(p.key, 1)} className="w-7 h-7 rounded-full bg-green-700 text-white text-sm font-bold">+</button>
+                  <span className="text-xs text-gray-400">{p.unit || "kg"}</span>
+                </div>
+                <div className="flex-1" />
+                <div className="relative w-24">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">₹</span>
+                  <input
+                    type="number" min="0" aria-label={`${p.name} price`}
+                    value={price[p.key]}
+                    onChange={(e) => setPrice((pr) => ({ ...pr, [p.key]: e.target.value }))}
+                    className="w-full pl-5 pr-1 py-1 rounded-lg border border-gray-200 text-sm text-right"
+                  />
+                </div>
+                <span className="text-[10px] text-gray-400 -ml-1">/{p.unit || "kg"}</span>
+              </div>
+            </div>
+          ))}
+          {products.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No products available.</p>}
+        </div>
+
+        <div className="flex items-center justify-between bg-green-50 rounded-2xl px-4 py-3 mb-4">
+          <span className="text-sm text-green-800">Amount to collect</span>
+          <span className="text-lg font-bold text-green-800" data-testid="quick-total">₹{total}</span>
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onClose} disabled={saving} className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-medium">Close</button>
+          <button onClick={submit} disabled={saving} className="flex-1 py-3 rounded-xl bg-green-700 text-white text-sm font-semibold disabled:opacity-60">
+            {saving ? "Saving…" : pending ? "Update Order" : "Confirm Order"}
+          </button>
+        </div>
+        {pending && (
+          <button onClick={cancelOrder} disabled={saving} className="w-full text-center text-xs text-red-500 font-medium mt-3">Cancel this order</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const idOf = (x) => (x && typeof x === "object" ? x._id : x);
+
 export default function CustomersPage() {
   const { distributor } = useDistributorAuth();
   const navigate = useNavigate();
@@ -193,10 +330,20 @@ export default function CustomersPage() {
   const [tab, setTab] = useState("All");
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  // NEW — one-click Today's Order
+  const [products, setProducts] = useState([]);
+  const [todayRecs, setTodayRecs] = useState([]);
+  const [quickFor, setQuickFor] = useState(null); // the customer whose order form is open
 
   const load = () => {
     setLoading(true);
-    getMyCustomers().then((c) => setCustomers(c.customers || [])).finally(() => setLoading(false));
+    Promise.all([getMyCustomers(), getProducts(), getMyDeliveries()])
+      .then(([c, p, d]) => {
+        setCustomers(c.customers || []);
+        setProducts((p.products || []).filter((x) => x.isActive !== false));
+        setTodayRecs(d.records || []);
+      })
+      .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
 
@@ -217,6 +364,15 @@ export default function CustomersPage() {
     const msg = `Hi ${customer.ownerName || customer.shopName}, this is ${distributor?.name || "your distributor"} from Sridhi. Regarding your today's Idly/Dosa batter order — please confirm your requirement. Thank you!`;
     return `https://wa.me/91${phone.length === 10 ? phone : phone.slice(-10)}?text=${encodeURIComponent(msg)}`;
   };
+
+  // Where is each customer's order today? pending (manual order waiting to be
+  // delivered) and/or already delivered.
+  const todayBy = {};
+  todayRecs.forEach((r) => {
+    const e = (todayBy[idOf(r.customer)] = todayBy[idOf(r.customer)] || { delivered: 0 });
+    if (r.status === "pending" && r.source === "manual") e.pending = r;
+    if (r.status === "delivered") e.delivered += 1;
+  });
 
   const cartCountFor = (customerId) => Object.keys(cart[customerId]?.items || {}).length;
 
@@ -319,6 +475,22 @@ export default function CustomersPage() {
                     </div>
 
                     <p className="text-[12px] text-gray-400 mt-1">{c.totalOrders || 0} orders · {c.totalKg || 0} kg</p>
+
+                    {/* NEW — one-click Today's Order */}
+                    <div className="flex items-center gap-2 mt-2.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                      {todayBy[c._id]?.delivered > 0 && (
+                        <span className="px-2 py-1 rounded-full bg-green-50 text-green-700 text-[11px] font-medium">✓ Delivered today</span>
+                      )}
+                      {todayBy[c._id]?.pending && (
+                        <span className="px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-[11px] font-medium">Order placed · ₹{todayBy[c._id].pending.amountCharged}</span>
+                      )}
+                      <button
+                        onClick={() => setQuickFor(c)}
+                        className="ml-auto px-3 py-1.5 rounded-full bg-green-700 text-white text-[12px] font-semibold"
+                      >
+                        {todayBy[c._id]?.pending ? "Edit Order" : "＋ Today's Order"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -344,6 +516,21 @@ export default function CustomersPage() {
         <AddCustomerModal
           onClose={() => setShowAdd(false)}
           onCreated={(c) => { setShowAdd(false); setCustomers((list) => [c, ...list]); }}
+        />
+      )}
+
+      {quickFor && (
+        <QuickOrderModal
+          customer={quickFor}
+          products={products}
+          pending={todayBy[quickFor._id]?.pending}
+          onClose={() => setQuickFor(null)}
+          onCancelled={() => { setQuickFor(null); load(); }}
+          onSaved={(record, updatedCustomer) => {
+            setQuickFor(null);
+            if (updatedCustomer) setCustomers((list) => list.map((x) => (x._id === updatedCustomer._id ? { ...x, customPricing: updatedCustomer.customPricing } : x)));
+            load();
+          }}
         />
       )}
 
