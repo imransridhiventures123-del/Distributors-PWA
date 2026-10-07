@@ -50,3 +50,23 @@ export const getMyDeliverySummary = () =>
 
 export const getMyLedger = () =>
   axiosInstance.get("/api/deliveries/mine/ledger").then((r) => r.data);
+
+// NEW — Feature: per-customer pricing. items = [{ productKey, customerRatePerKg }]
+export const updateMyCustomerPricing = (customerId, items) =>
+  axiosInstance.put(`/api/distributors/my-customers/${customerId}/pricing`, { items }).then((r) => r.data);
+
+// NEW — Feature: one-click "Today's Order" from the Customers tab (becomes a
+// pending order card on the Orders tab), Mark Complete, cancel.
+export const createManualOrder = (payload) =>
+  axiosInstance.post("/api/deliveries/orders", payload).then((r) => r.data);
+
+// payment = { cashAmount, onlineAmount, creditAmount } — must add up to the order amount
+export const completeOrder = (id, payment) =>
+  axiosInstance.put(`/api/deliveries/orders/${id}/complete`, payment).then((r) => r.data);
+
+export const cancelManualOrder = (id) =>
+  axiosInstance.delete(`/api/deliveries/orders/${id}`).then((r) => r.data);
+
+// NEW — Ledger "Receive Payment": customer pays old credit. mode = "cash" | "online"
+export const receivePayment = (payload) =>
+  axiosInstance.post("/api/deliveries/receipts", payload).then((r) => r.data);
