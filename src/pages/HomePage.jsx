@@ -58,6 +58,7 @@ const STATUS_STYLE = {
   Delivered: "bg-green-100 text-green-700",
   Credit: "bg-amber-100 text-amber-700",
   Skipped: "bg-gray-100 text-gray-500",
+  Pending: "bg-blue-100 text-blue-700",
 };
 
 function timeAgo(dateStr) {
@@ -121,7 +122,7 @@ export default function HomePage() {
   const displayName = profile?.name || authDistributor?.name || "Distributor";
   const stock = profile?.currentStockKg || { idly: 0, dosa: 0 };
   const totalStockUnits = stock.idly + stock.dosa;
-  const pendingCustomerCount = ledger?.customerLedger?.length || 0;
+  const pendingCustomerCount = (ledger?.customerLedger || []).filter((c) => c.outstanding > 0).length;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24 max-w-md mx-auto sm:max-w-lg">
@@ -215,7 +216,7 @@ export default function HomePage() {
           )}
           {todayDeliveries.slice(0, 6).map((d) => {
             const isCredit = d.status !== "skipped" && d.paymentStatus === "credit";
-            const badgeLabel = d.status === "skipped" ? "Skipped" : isCredit ? "Credit" : "Delivered";
+            const badgeLabel = d.status === "skipped" ? "Skipped" : d.status === "pending" ? "Pending" : isCredit ? "Credit" : "Delivered";
             return (
               <button
                 key={d._id}

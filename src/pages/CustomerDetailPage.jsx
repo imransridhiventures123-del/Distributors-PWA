@@ -24,7 +24,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import BottomNav from "../components/BottomNav";
-import { getMyCustomers, getProducts, getMyLedger, getMyDeliveries } from "../api/distributorApi";
+import { getMyCustomers, getProducts, getMyLedger, getMyDeliveries, updateMyCustomerPricing } from "../api/distributorApi";
 import { useCart } from "../context/CartContext";
 
 const PREMIUM_KG_THRESHOLD = 40;
@@ -52,6 +52,19 @@ export default function CustomerDetailPage() {
   const [tab, setTab] = useState("Products");
   const [quantities, setQuantities] = useState({}); // { [productKey]: kg }
   const [added, setAdded] = useState(false);
+  // NEW — Feature: per-customer pricing (set it here any time; admin can set
+  // it too when assigning — whoever saves last wins).
+  const [priceInputs, setPriceInputs] = useState({}); // { [productKey]: string }
+  const [savingPricing, setSavingPricing] = useState(false);
+  const [pricingSaved, setPricingSaved] = useState(false);
+  const [pricingError, setPricingError] = useState("");
+
+  // This customer's own price for a product if one is set, else the catalog
+  // price — the same rule the server uses when the order is charged.
+  const priceFor = (key) => {
+    const override = customer?.customPricing?.find((it) => it.productKey === key);
+    return override ? override.customerRatePerKg : (products.find((p) => p.key === key)?.customerRatePerKg || 0);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -68,6 +81,9 @@ export default function CustomerDetailPage() {
         const initial = {};
         (p.products || []).forEach((prod) => { initial[prod.key] = qtyFor(id, prod.key) || 0; });
         setQuantities(initial);
+        const priceInit = {};
+        (found?.customPricing || []).forEach((it) => { priceInit[it.productKey] = String(it.customerRatePerKg); });
+        setPriceInputs(priceInit);
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -77,7 +93,7 @@ export default function CustomerDetailPage() {
   const setQty = (key, val) => setQuantities((q) => ({ ...q, [key]: Math.max(0, Number(val) || 0) }));
 
   const totalKg = Object.values(quantities).reduce((s, v) => s + v, 0);
-  const totalPrice = products.reduce((s, p) => s + (quantities[p.key] || 0) * p.customerRatePerKg, 0);
+  const totalPrice = products.reduce((s, p) => s + (quantities[p.key] || 0) * priceFor(p.key), 0);
   // Products can now be sold by kg, packet, litre... so only call the
   // total "kg" when every selected product really is sold by the kg.
   const selectedProducts = products.filter((p) => (quantities[p.key] || 0) > 0);
@@ -90,6 +106,20 @@ export default function CustomerDetailPage() {
     });
     setAdded(true);
     setTimeout(() => setAdded(false), 1500);
+  };
+
+  const savePricing = async () => {
+    setPricingError(""); setSavingPricing(true); setPricingSaved(false);
+    try {
+      const items = Object.entries(priceInputs)
+        .filter(([, v]) => v !== "" && v !== null && v !== undefined)
+        .map(([productKey, v]) => ({ productKey, customerRatePerKg: Number(v) }));
+      const data = await updateMyCustomerPricing(customer._id, items);
+      setCustomer((c) => ({ ...c, customPricing: data.customer.customPricing }));
+      setPricingSaved(true); setTimeout(() => setPricingSaved(false), 2000);
+    } catch (err) {
+      setPricingError(err.response?.data?.message || "Couldn't save pricing.");
+    } finally { setSavingPricing(false); }
   };
 
   if (loading) {
@@ -174,6 +204,12 @@ export default function CustomerDetailPage() {
           >
             Order History
           </button>
+          <button
+            onClick={() => setTab("Pricing")}
+            className={`flex-1 py-2.5 rounded-xl text-[13.5px] font-semibold ${tab === "Pricing" ? "bg-green-700 text-white" : "text-gray-500"}`}
+          >
+            Pricing
+          </button>
         </div>
 
         {/* ── Products tab ── */}
@@ -189,7 +225,10 @@ export default function CustomerDetailPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-800 text-sm">{p.name}</p>
                   {p.description && <p className="text-[11px] text-gray-400 leading-snug line-clamp-2">{p.description}</p>}
-                  <p className="text-xs text-gray-400 mb-1">₹{p.customerRatePerKg}/{p.unit || "kg"}</p>
+                  <p className="text-xs text-gray-400 mb-1">
+                    ₹{priceFor(p.key)}/{p.unit || "kg"}
+                    {customer.customPricing?.some((it) => it.productKey === p.key) && <span className="text-green-600"> · this customer's price</span>}
+                  </p>
                   <p className="text-[11px] text-green-600 mb-1.5">● In Stock</p>
                   <div className="flex items-center gap-2">
                     <button onClick={() => bump(p.key, -1)} className="w-7 h-7 rounded-full border border-green-700 text-green-700 flex items-center justify-center text-sm font-bold">−</button>
@@ -202,10 +241,39 @@ export default function CustomerDetailPage() {
                     <button onClick={() => bump(p.key, 1)} className="w-7 h-7 rounded-full bg-green-700 text-white flex items-center justify-center text-sm font-bold">+</button>
                   </div>
                 </div>
-                <p className="font-semibold text-gray-800 text-sm flex-shrink-0">₹{(quantities[p.key] || 0) * p.customerRatePerKg}</p>
+                <p className="font-semibold text-gray-800 text-sm flex-shrink-0">₹{(quantities[p.key] || 0) * priceFor(p.key)}</p>
               </div>
             ))}
             {products.length === 0 && <p className="text-center text-gray-400 text-sm py-8">No products available.</p>}
+          </div>
+        )}
+
+        {/* ── Pricing tab ── */}
+        {tab === "Pricing" && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs text-gray-400 mb-3">Set this customer's price for each product. Orders, the amount to collect and the Ledger all use it. Leave a box empty to use the normal catalog price.</p>
+            {pricingError && <div className="bg-red-50 text-red-600 text-xs px-3 py-2 rounded-xl mb-3">{pricingError}</div>}
+            <div className="space-y-3 mb-4">
+              {products.map((p) => (
+                <div key={p.key} className="flex items-center gap-3">
+                  <span className="flex-1 text-sm text-gray-700">{p.name}</span>
+                  <span className="text-[11px] text-gray-400">catalog ₹{p.customerRatePerKg}</span>
+                  <div className="relative w-24">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">₹</span>
+                    <input
+                      type="number" min="0" aria-label={`${p.name} price for this customer`}
+                      value={priceInputs[p.key] ?? ""}
+                      onChange={(e) => setPriceInputs((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                      placeholder="default"
+                      className="w-full pl-5 pr-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={savePricing} disabled={savingPricing} className="w-full py-2.5 rounded-xl bg-green-700 text-white text-sm font-semibold disabled:opacity-60">
+              {savingPricing ? "Saving…" : pricingSaved ? "Saved ✓" : "Save Pricing"}
+            </button>
           </div>
         )}
 
@@ -226,8 +294,8 @@ export default function CustomerDetailPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-semibold text-gray-800">{money(o.amountCharged)}</p>
-                    <span className={`text-[11px] ${o.status === "skipped" ? "text-gray-400" : o.paymentStatus === "credit" ? "text-amber-600" : "text-green-600"}`}>
-                      {o.status === "skipped" ? "Skipped" : o.paymentStatus}
+                    <span className={`text-[11px] ${o.status === "skipped" ? "text-gray-400" : o.status === "pending" || o.paymentStatus === "credit" ? "text-amber-600" : "text-green-600"}`}>
+                      {o.status === "skipped" ? "Skipped" : o.status === "pending" ? "Pending delivery" : o.paymentStatus}
                     </span>
                   </div>
                 </div>
