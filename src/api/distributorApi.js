@@ -72,7 +72,7 @@ export const receivePayment = (payload) =>
   axiosInstance.post("/api/deliveries/receipts", payload).then((r) => r.data);
 
 // NEW — Feature: "Request Product" (Home page button). items = [{ productKey, qty }]
-// Price is never sent — the server takes it from the admin's catalog.
+// Price is never sent — the server takes it from the 
 export const createProductRequest = (payload) =>
   axiosInstance.post("/api/product-requests", payload).then((r) => r.data);
 
