@@ -16,6 +16,8 @@ import LedgerPage from "./pages/LedgerPage";
 import ProfilePage from "./pages/ProfilePage";
 import CheckoutPage from "./pages/CheckoutPage";
 import CustomerDetailPage from "./pages/CustomerDetailPage";
+import RequestProductPage from "./pages/RequestProductPage";
+import NotificationsPage from "./pages/NotificationsPage";
 
 export default function App() {
   return (
@@ -35,6 +37,9 @@ export default function App() {
             <Route path="/ledger" element={<PrivateRoute><LedgerPage /></PrivateRoute>} />
             <Route path="/profile" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
             <Route path="/checkout" element={<PrivateRoute><CheckoutPage /></PrivateRoute>} />
+            {/* NEW — Request Product + Notifications */}
+            <Route path="/request-product" element={<PrivateRoute><RequestProductPage /></PrivateRoute>} />
+            <Route path="/notifications" element={<PrivateRoute><NotificationsPage /></PrivateRoute>} />
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

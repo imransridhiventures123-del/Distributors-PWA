@@ -31,6 +31,7 @@ import {
   getMyDeliveries,
   getMyBatterRequests,
   getMyLedger,
+  getUnreadNotificationCount,
 } from "../api/distributorApi";
 
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
@@ -58,6 +59,7 @@ const STATUS_STYLE = {
   Delivered: "bg-green-100 text-green-700",
   Credit: "bg-amber-100 text-amber-700",
   Skipped: "bg-gray-100 text-gray-500",
+  Pending: "bg-blue-100 text-blue-700",
 };
 
 function timeAgo(dateStr) {
@@ -101,6 +103,21 @@ export default function HomePage() {
   const [ledger, setLedger] = useState(null);
   const [todayDeliveries, setTodayDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
+  // NEW — unread notification count for the bell badge
+  const [unread, setUnread] = useState(0);
+
+  // NEW — poll the unread count (on open, every 45s, and when the app is
+  // brought back to the foreground) so "Admin approved your request…"
+  // shows up on the bell without a manual refresh.
+  useEffect(() => {
+    const fetchUnread = () =>
+      getUnreadNotificationCount().then((d) => setUnread(d.unreadCount || 0)).catch(() => {});
+    fetchUnread();
+    const t = setInterval(fetchUnread, 45000);
+    const onVisible = () => { if (document.visibilityState === "visible") fetchUnread(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -121,7 +138,7 @@ export default function HomePage() {
   const displayName = profile?.name || authDistributor?.name || "Distributor";
   const stock = profile?.currentStockKg || { idly: 0, dosa: 0 };
   const totalStockUnits = stock.idly + stock.dosa;
-  const pendingCustomerCount = ledger?.customerLedger?.length || 0;
+  const pendingCustomerCount = (ledger?.customerLedger || []).filter((c) => c.outstanding > 0).length;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24 max-w-md mx-auto sm:max-w-lg">
@@ -133,11 +150,13 @@ export default function HomePage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <button className="relative text-white">
+          <button className="relative text-white" onClick={() => navigate("/notifications")} aria-label="Notifications">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
-            <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">1</span>
+            {unread > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">{unread > 9 ? "9+" : unread}</span>
+            )}
           </button>
         </div>
 
@@ -178,6 +197,23 @@ export default function HomePage() {
           />
         </div>
 
+        {/* ── NEW — Request Product (any admin-added product) ── */}
+        <button
+          onClick={() => navigate("/request-product")}
+          className="w-full mb-6 flex items-center justify-between rounded-2xl bg-gradient-to-r from-[#1a2a54] to-[#0e1c42] text-white px-5 py-4 shadow-sm"
+        >
+          <span className="flex items-center gap-3 text-left">
+            <span className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+            </span>
+            <span>
+              <span className="block font-bold text-[15px]">Request Product</span>
+              <span className="block text-[12px] text-white/70">Ask admin for batter or any product</span>
+            </span>
+          </span>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
+
         {/* ── Quick Actions ── */}
         <div className="flex items-center justify-between mb-3">
           <p className="font-bold text-gray-800 text-[16px]">Quick Actions</p>
@@ -215,7 +251,7 @@ export default function HomePage() {
           )}
           {todayDeliveries.slice(0, 6).map((d) => {
             const isCredit = d.status !== "skipped" && d.paymentStatus === "credit";
-            const badgeLabel = d.status === "skipped" ? "Skipped" : isCredit ? "Credit" : "Delivered";
+            const badgeLabel = d.status === "skipped" ? "Skipped" : d.status === "pending" ? "Pending" : isCredit ? "Credit" : "Delivered";
             return (
               <button
                 key={d._id}
