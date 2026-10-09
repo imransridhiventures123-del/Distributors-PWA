@@ -71,7 +71,6 @@ export const cancelManualOrder = (id) =>
 export const receivePayment = (payload) =>
   axiosInstance.post("/api/deliveries/receipts", payload).then((r) => r.data);
 
-
 // NEW — Feature: "Request Product" (Home page button). items = [{ productKey, qty }]
 // Price is never sent — the server takes it from the admin's catalog.
 export const createProductRequest = (payload) =>
