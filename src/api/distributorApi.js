@@ -88,3 +88,4 @@ export const getUnreadNotificationCount = () =>
 
 export const markAllNotificationsRead = () =>
   axiosInstance.put("/api/notifications/read-all").then((r) => r.data);
+  axiosInstance.post("/api/deliveries/receipts", payload).then((r) => r.data);
