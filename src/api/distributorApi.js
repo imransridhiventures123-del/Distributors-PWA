@@ -70,3 +70,22 @@ export const cancelManualOrder = (id) =>
 // NEW — Ledger "Receive Payment": customer pays old credit. mode = "cash" | "online"
 export const receivePayment = (payload) =>
   axiosInstance.post("/api/deliveries/receipts", payload).then((r) => r.data);
+
+// NEW — Feature: "Request Product" (Home page button). items = [{ productKey, qty }]
+// Price is never sent — the server takes it from the admin's catalog.
+export const createProductRequest = (payload) =>
+  axiosInstance.post("/api/product-requests", payload).then((r) => r.data);
+
+export const getMyProductRequests = () =>
+  axiosInstance.get("/api/product-requests/mine").then((r) => r.data);
+
+// NEW — Feature: notifications (bell icon on Home)
+export const getMyNotifications = () =>
+  axiosInstance.get("/api/notifications").then((r) => r.data);
+
+export const getUnreadNotificationCount = () =>
+  axiosInstance.get("/api/notifications/unread-count").then((r) => r.data);
+
+export const markAllNotificationsRead = () =>
+  axiosInstance.put("/api/notifications/read-all").then((r) => r.data);
+  axiosInstance.post("/api/deliveries/receipts", payload).then((r) => r.data);
