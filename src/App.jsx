@@ -18,6 +18,7 @@ import CheckoutPage from "./pages/CheckoutPage";
 import CustomerDetailPage from "./pages/CustomerDetailPage";
 import RequestProductPage from "./pages/RequestProductPage";
 import NotificationsPage from "./pages/NotificationsPage";
+import MyBillsPage from "./pages/MyBillsPage"; // NEW — distributor bills
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
             {/* NEW — Request Product + Notifications */}
             <Route path="/request-product" element={<PrivateRoute><RequestProductPage /></PrivateRoute>} />
             <Route path="/notifications" element={<PrivateRoute><NotificationsPage /></PrivateRoute>} />
+            <Route path="/my-bills" element={<PrivateRoute><MyBillsPage /></PrivateRoute>} />
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
