@@ -89,3 +89,10 @@ export const getUnreadNotificationCount = () =>
 export const markAllNotificationsRead = () =>
   axiosInstance.put("/api/notifications/read-all").then((r) => r.data);
 
+// NEW — Feature: distributor bills (what I owe the company). Summary feeds the
+// single Home card; getMyBills feeds the My Bills page.
+export const getMyBillSummary = () =>
+  axiosInstance.get("/api/distributor-bills/mine/summary").then((r) => r.data);
+
+export const getMyBills = () =>
+  axiosInstance.get("/api/distributor-bills/mine").then((r) => r.data);
