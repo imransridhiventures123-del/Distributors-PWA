@@ -32,6 +32,7 @@ import {
   getMyBatterRequests,
   getMyLedger,
   getUnreadNotificationCount,
+  getMyBillSummary,
 } from "../api/distributorApi";
 
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
@@ -105,6 +106,12 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   // NEW — unread notification count for the bell badge
   const [unread, setUnread] = useState(0);
+  // NEW — what I owe the company (one card). Loaded on its own so a problem
+  // here can never affect the rest of the Home page.
+  const [bills, setBills] = useState(null);
+  useEffect(() => {
+    getMyBillSummary().then(setBills).catch(() => setBills(null));
+  }, []);
 
   // NEW — poll the unread count (on open, every 45s, and when the app is
   // brought back to the foreground) so "Admin approved your request…"
@@ -196,6 +203,23 @@ export default function HomePage() {
             subtext="Total So Far"
           />
         </div>
+
+        {/* ── NEW — single card: pending payment to company (taps through to My Bills) ── */}
+        {bills && (
+          <button
+            onClick={() => navigate("/my-bills")}
+            className="w-full mb-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-[#f2994a] to-[#e2733a] text-white px-5 py-4 shadow-sm text-left"
+          >
+            <span>
+              <span className="block text-[13px] font-medium text-white/90">Pending Payment to Company</span>
+              <span className="block text-[24px] font-bold leading-tight">{money(bills.pending)}</span>
+              <span className="block text-[12px] text-white/80">
+                {bills.pending > 0 ? `${bills.billCount} bill${bills.billCount === 1 ? "" : "s"} · tap to view` : "All bills paid"}
+              </span>
+            </span>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          </button>
+        )}
 
         {/* ── NEW — Request Product (any admin-added product) ── */}
         <button
